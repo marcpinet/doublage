@@ -1,0 +1,32 @@
+# Host dependencies (the player who preprocesses + hosts + assembles).
+# Friends who only play need NOTHING (they open the invite link in a browser).
+# The relay uses its own light deps: relay/requirements.txt
+
+# Subtitles
+pysubs2>=1.7.0
+
+# Auto-generated subtitles ("auto-subs" option): local transcription with OpenAI Whisper large-v3.
+# The model (~3 GB) is downloaded on first use of the option.
+openai-whisper
+
+# Source separation (install torch with CUDA support BEFORE this file:
+#   pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu124 )
+demucs>=4.0.0
+soundfile>=0.12.0
+
+# Diarization (needs a HuggingFace token, see .env.example)
+pyannote.audio>=3.1
+# Used directly by the per-line embedding diarization (--num-speakers). It is usually pulled in
+# transitively by pyannote's stack, but declared explicitly because diarize.py imports it directly.
+scikit-learn>=1.3
+
+# Local host app + preprocess UI
+fastapi>=0.110
+uvicorn[standard]>=0.27
+python-multipart>=0.0.20
+requests>=2.31
+
+# Windows only (skipped elsewhere): triton port used by Whisper's GPU kernels.
+# It compiles kernels at runtime with MSVC, so it needs the Visual Studio C++ build
+# tools installed — run.bat sets the MSVC environment up automatically (see README).
+triton-windows; sys_platform == "win32"

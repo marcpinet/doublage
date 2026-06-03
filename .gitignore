@@ -1,0 +1,41 @@
+.venv/
+venv/
+.env
+.env.local
+.env.*.local
+.claude/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.DS_Store
+Thumbs.db
+
+# Large media artifacts (kept out of git)
+*.mkv
+*.mp4
+*.wav
+*.flac
+*.srt
+*.ass
+
+# Pipeline outputs (sample project dirs)
+out/
+out_*/
+output_bundles/
+project_*/
+
+# Relay runtime state (ephemeral room bundles, takes, db, session secret)
+pi_storage/
+relay/relay_storage*/
+relay_storage*/
+
+# Host-built distribution bundles (temp)
+.dist_*.zip
+
+# Temporary lab / banc d'essai (comparatifs, venv dupliqué) — supprimable
+lab/
+.venv_lab/
+graphify-out

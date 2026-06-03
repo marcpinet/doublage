@@ -1,0 +1,626 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Dubbing Preprocess</title>
+<style>
+  :root {
+    --bg: #0f1115; --bg-elev: #181b22; --bg-elev-2: #1f232c;
+    --border: #2a2f3a; --fg: #e6e9ef; --fg-dim: #8a93a3;
+    --accent: #4f8bff; --warn: #f59e0b; --danger: #ef4444; --ok: #10b981;
+    --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font); font-size: 14px; }
+  .ic { width: 1em; height: 1em; vertical-align: -0.125em; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+  .app { max-width: 980px; margin: 0 auto; padding: 24px; display: flex; flex-direction: column; gap: 20px; }
+  header h1 { margin: 0 0 4px; font-size: 18px; }
+  header .sub { color: var(--fg-dim); font-size: 13px; }
+  h2 { font-size: 13px; color: var(--fg-dim); text-transform: uppercase; letter-spacing: 0.08em; margin: 0 0 8px; font-weight: 600; }
+  .card { background: var(--bg-elev); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+  .row { display: flex; gap: 10px; align-items: center; }
+  .row + .row { margin-top: 10px; }
+  .grow { flex: 1; }
+  button {
+    background: var(--bg-elev-2); color: var(--fg); border: 1px solid var(--border);
+    border-radius: 6px; padding: 6px 12px; font: inherit; cursor: pointer;
+  }
+  button:hover { background: #262b36; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  button.primary:hover { background: #3a78f0; }
+  button.big { padding: 12px 24px; font-size: 15px; font-weight: 600; }
+  button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible, [tabindex]:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px;
+  }
+  input[type="text"], input[type="number"], select {
+    background: var(--bg); color: var(--fg); border: 1px solid var(--border);
+    border-radius: 6px; padding: 7px 10px; font: inherit;
+  }
+  input[type="text"]:focus, input[type="number"]:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .mono { font-family: var(--mono); }
+  .ts-input { width: 90px; font-family: var(--mono); text-align: center; font-variant-numeric: tabular-nums; }
+  .duration { font-family: var(--mono); color: var(--fg-dim); font-variant-numeric: tabular-nums; }
+  .track-list { font-family: var(--mono); font-size: 12px; white-space: pre; background: var(--bg); padding: 8px 12px;
+    border-radius: 6px; max-height: 220px; overflow-y: auto; }
+  video {
+    width: 100%; max-height: 360px; background: #000;
+    border-radius: 6px; border: 1px solid var(--border);
+  }
+  .timeline-wrap { position: relative; height: 36px; background: var(--bg); border-radius: 6px;
+    margin-top: 8px; cursor: pointer; user-select: none; }
+  .timeline-bar { position: absolute; top: 0; left: 0; height: 100%; background: var(--bg-elev-2); border-radius: 6px; }
+  .timeline-range {
+    position: absolute; top: 6px; bottom: 6px;
+    background: rgba(79, 139, 255, 0.18); border: 1px solid var(--accent);
+    border-radius: 4px;
+  }
+  .timeline-cursor {
+    position: absolute; top: 0; bottom: 0; width: 2px; background: var(--warn);
+    pointer-events: none;
+  }
+  .timeline-handle {
+    position: absolute; top: 0; bottom: 0; width: 8px; cursor: ew-resize;
+    background: var(--accent); border-radius: 2px;
+  }
+  .err { color: var(--danger); margin-top: 8px; font-size: 13px; }
+  .ok-msg { color: var(--ok); font-size: 13px; }
+  .log-panel {
+    background: #06070a; color: #cbd1dc; font-family: var(--mono); font-size: 12px;
+    border-radius: 6px; padding: 12px; max-height: 380px; overflow-y: auto;
+    border: 1px solid var(--border); white-space: pre-wrap;
+  }
+  .log-line { padding: 1px 0; }
+  .log-line.err { color: #ff8a8a; }
+  .status-pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+  .status-running { background: var(--accent); color: #fff; }
+  .status-done { background: var(--ok); color: #fff; }
+  .status-failed { background: var(--danger); color: #fff; }
+  .small { font-size: 12px; color: var(--fg-dim); }
+  code { background: var(--bg); padding: 1px 5px; border-radius: 3px; font-family: var(--mono); font-size: 12px; }
+
+  .preview-status {
+    font-size: 12px; color: var(--fg-dim);
+    display: flex; align-items: center; gap: 8px; margin-bottom: 8px;
+  }
+  .preview-status.ready { color: var(--ok); }
+  .preview-status.failed { color: var(--danger); }
+  .spinner {
+    width: 12px; height: 12px; border: 2px solid var(--fg-dim);
+    border-top-color: transparent; border-radius: 50%;
+    animation: spin 0.8s linear infinite; display: inline-block;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .hint { font-size: 11px; color: var(--fg-dim); margin-top: 6px; line-height: 1.5; }
+  label.cb { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+  label.cb .desc { color: var(--fg-dim); font-size: 11px; margin-left: 4px; }
+</style>
+</head>
+<body>
+<svg style="display:none" aria-hidden="true" focusable="false">
+  <symbol id="ic-arrow-left" viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></symbol>
+  <symbol id="ic-arrow-right" viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></symbol>
+  <symbol id="ic-play" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></symbol>
+  <symbol id="ic-check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></symbol>
+  <symbol id="ic-x" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></symbol>
+</svg>
+<div class="app">
+  <header>
+    <h1>Dubbing · Preprocess</h1>
+    <div class="sub">Local-only tool. Pick a source video, choose tracks + range, run the Bloc A pipeline.</div>
+  </header>
+
+  <section>
+    <h2>Source</h2>
+    <div class="card">
+      <div class="row">
+        <label for="source-path" class="sr-only">Source video path</label>
+        <input id="source-path" name="source-path" type="text" class="grow mono" placeholder="C:\path\to\episode.mkv" autocomplete="off" spellcheck="false" aria-label="Source video path">
+        <button id="browse-btn" type="button" title="Pick a video file with the native file dialog">Browse…</button>
+        <button id="probe-btn" type="button" title="Inspect the file and list its tracks">Probe</button>
+      </div>
+      <div id="probe-error" class="err" hidden></div>
+      <div id="probe-summary" class="small" style="margin-top:8px;"></div>
+      <div id="probe-tracks" class="track-list" hidden></div>
+    </div>
+  </section>
+
+  <section id="preview-section" hidden>
+    <h2>Preview & range</h2>
+    <div class="card">
+      <div class="preview-status" id="preview-status">
+        <span>Source plays as-is (raw MKV): audio &amp; smooth playback often need a transcoded proxy.</span>
+        <button id="gen-preview-btn" type="button" title="Transcode a smooth, audible preview proxy">Generate playable preview</button>
+      </div>
+      <video id="video" controls preload="metadata"></video>
+      <div class="timeline-wrap" id="timeline">
+        <div class="timeline-bar"></div>
+        <div class="timeline-range" id="timeline-range"></div>
+        <div class="timeline-cursor" id="timeline-cursor"></div>
+      </div>
+      <div class="row" style="margin-top:16px;">
+        <label for="start-input" style="width:60px;">Start</label>
+        <input id="start-input" name="start" type="text" class="ts-input" placeholder="HH:MM:SS" autocomplete="off" spellcheck="false">
+        <button id="set-start-btn" type="button" title="Use video position as start" aria-label="Set start to current video position"><svg class="ic" aria-hidden="true"><use href="#ic-arrow-left"/></svg> at cursor</button>
+        <label for="end-input" style="width:60px; margin-left:20px;">End</label>
+        <input id="end-input" name="end" type="text" class="ts-input" placeholder="HH:MM:SS" autocomplete="off" spellcheck="false">
+        <button id="set-end-btn" type="button" title="Use video position as end" aria-label="Set end to current video position">at cursor <svg class="ic" aria-hidden="true"><use href="#ic-arrow-right"/></svg></button>
+        <span class="grow"></span>
+        <span class="duration" id="range-duration"></span>
+      </div>
+    </div>
+  </section>
+
+  <section id="tracks-section" hidden>
+    <h2>Track selection (override auto)</h2>
+    <div class="card">
+      <div class="row">
+        <label for="audio-track-sel" style="width:80px;">Audio</label>
+        <select id="audio-track-sel" class="grow"></select>
+      </div>
+      <div class="row">
+        <label for="subtitle-track-sel" style="width:80px;">Subtitle</label>
+        <select id="subtitle-track-sel" class="grow"></select>
+      </div>
+      <div class="hint">
+        These dropdowns affect <b>what the pipeline will extract</b>. Changing audio also regenerates the playable preview above so you can hear which track you picked. Subtitle selection is pipeline-only (preview doesn't burn subs).
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Pipeline options</h2>
+    <div class="card">
+      <div class="row">
+        <label for="lang-input" style="width:120px;">Language</label>
+        <input id="lang-input" name="lang" type="text" value="fre" style="width:80px;" class="mono" autocomplete="off" spellcheck="false">
+        <label for="speakers-input" style="width:120px; margin-left:20px;">Num speakers</label>
+        <input id="speakers-input" name="speakers" type="number" min="1" max="8" placeholder="auto" style="width:80px;" class="mono" autocomplete="off">
+      </div>
+      <div class="row">
+        <label for="output-input" style="width:120px;">Output dir</label>
+        <input id="output-input" name="output" type="text" class="grow mono" placeholder="./output_bundles/out_<filename>" autocomplete="off" spellcheck="false">
+      </div>
+      <div class="row">
+        <label for="auto-subs" style="display:inline-flex; align-items:center; gap:8px; cursor:pointer;">
+          <input type="checkbox" id="auto-subs" onchange="document.getElementById('subtitle-track-sel').disabled=this.checked"> Generate subtitles automatically (Whisper large-v3, local)
+        </label>
+      </div>
+      <div class="hint">
+        Ignores embedded subtitles (.srt/.ass): transcribes the audio, splits it into lines and
+        assigns them to the right characters/moments. Slower (downloads the ~3 GB model on first run).
+      </div>
+    </div>
+  </section>
+
+  <div class="row" style="justify-content: center;">
+    <button id="run-btn" type="button" class="primary big" title="Run the preprocessing pipeline"><svg class="ic" aria-hidden="true"><use href="#ic-play"/></svg> Run pipeline</button>
+    <button id="cancel-btn" type="button" title="Cancel the running pipeline" hidden>Cancel</button>
+  </div>
+
+  <section id="log-section" hidden>
+    <h2>
+      Pipeline log
+      <span class="status-pill" id="status-pill"></span>
+    </h2>
+    <div class="card">
+      <div class="log-panel" id="log-panel"></div>
+      <div id="job-done" hidden style="margin-top:12px;">
+        <span class="ok-msg" id="job-done-msg"></span>
+        <div class="small" style="margin-top:6px;">
+          Bundle ready at: <code id="job-output"></code>.
+          Zip it and upload via the server's <code>Admin</code> tab, or use locally.
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+const $ = sel => document.querySelector(sel);
+let probed = null;
+let currentJob = null;
+let sse = null;
+const ACTIVE_JOB_KEY = "dub.activeJob";
+
+function notify(title, body) {
+  if (!("Notification" in window)) return;
+  if (Notification.permission === "granted" && document.hidden) {
+    try { new Notification(title, { body: body || "", icon: "/static/favicon.png" }); } catch {}
+  }
+}
+
+function fmtTime(s) {
+  if (!isFinite(s)) return "--:--";
+  s = Math.max(0, s);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = Math.floor(s % 60);
+  if (h > 0) return `${h}:${m.toString().padStart(2,"0")}:${sec.toString().padStart(2,"0")}`;
+  return `${m}:${sec.toString().padStart(2,"0")}`;
+}
+
+function parseTime(str) {
+  if (!str) return null;
+  const parts = str.trim().split(":");
+  let h = 0, m = 0, s = 0;
+  if (parts.length === 1) s = parseFloat(parts[0]);
+  else if (parts.length === 2) { m = parseInt(parts[0], 10); s = parseFloat(parts[1]); }
+  else if (parts.length === 3) { h = parseInt(parts[0], 10); m = parseInt(parts[1], 10); s = parseFloat(parts[2]); }
+  else return null;
+  if (isNaN(h+m+s)) return null;
+  return h*3600 + m*60 + s;
+}
+
+let previewJobId = null;
+let previewPoll = null;
+
+async function probe() {
+  const path = $("#source-path").value.trim();
+  const err = $("#probe-error");
+  err.hidden = true;
+  if (!path) { err.textContent = "Enter a path"; err.hidden = false; return; }
+  $("#probe-btn").disabled = true;
+  try {
+    const r = await fetch("/api/probe?path=" + encodeURIComponent(path));
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || r.status);
+    probed = data;
+    populateProbeResult();
+    $("#preview-section").hidden = false;
+    $("#tracks-section").hidden = false;
+    previewJobId = null;
+    if (previewPoll) { clearInterval(previewPoll); previewPoll = null; }
+    if (sse) { try { sse.close(); } catch (_) {} sse = null; }
+    setPreviewStatus("idle");
+    const v = $("#video");
+    v.src = "/api/preview?path=" + encodeURIComponent(path);
+    v.load();
+    suggestDefaults(path);
+  } catch (e) {
+    err.textContent = "Probe failed: " + e.message; err.hidden = false;
+  } finally {
+    $("#probe-btn").disabled = false;
+  }
+}
+$("#probe-btn").addEventListener("click", probe);
+$("#source-path").addEventListener("keydown", e => { if (e.key === "Enter") probe(); });
+
+function populateProbeResult() {
+  const summary = `Duration ${fmtTime(probed.duration_sec)} · ${probed.tracks.length} streams`;
+  $("#probe-summary").textContent = summary;
+  const lines = probed.tracks.map(t => {
+    const lang = t.language || "-";
+    const title = t.title || "-";
+    const flags = [];
+    if (t.default) flags.push("default");
+    if (t.forced) flags.push("forced");
+    if (t.hearing_impaired) flags.push("sdh");
+    return `[${String(t.index).padStart(2)}] ${t.codec_type.padEnd(9)} ${t.codec_name.padEnd(10)} lang=${lang.padEnd(4)} title="${title}"${flags.length?" ("+flags.join(",")+")":""}`;
+  });
+  $("#probe-tracks").textContent = lines.join("\n");
+  $("#probe-tracks").hidden = false;
+
+  const audioSel = $("#audio-track-sel"), subSel = $("#subtitle-track-sel");
+  audioSel.innerHTML = '<option value="">auto (smart pick)</option>';
+  subSel.innerHTML = '<option value="">auto (smart pick)</option>';
+  for (const t of probed.tracks) {
+    const opt = document.createElement("option");
+    opt.value = t.index;
+    opt.textContent = `[${t.index}] ${t.codec_name} ${t.language || ""} ${t.title || ""}`.trim();
+    if (t.codec_type === "audio") audioSel.appendChild(opt);
+    if (t.codec_type === "subtitle") subSel.appendChild(opt.cloneNode(true));
+  }
+}
+
+function suggestDefaults(path) {
+  if (!$("#output-input").value) {
+    const stem = path.split(/[/\\]/).pop().replace(/\.[^.]+$/, "");
+    $("#output-input").value = `./output_bundles/out_${stem.toLowerCase().replace(/[^a-z0-9-]+/g,"-")}`;
+  }
+}
+
+const video = $("#video");
+const timeline = $("#timeline");
+const tlCursor = $("#timeline-cursor");
+const tlRange = $("#timeline-range");
+function updateTimeline() {
+  if (!video.duration) return;
+  const w = timeline.clientWidth;
+  const c = (video.currentTime / video.duration) * w;
+  tlCursor.style.left = c + "px";
+  const s = parseTime($("#start-input").value);
+  const e = parseTime($("#end-input").value);
+  if (s != null && e != null && e > s && video.duration > 0) {
+    const left = (s / video.duration) * w;
+    const right = (e / video.duration) * w;
+    tlRange.style.left = left + "px";
+    tlRange.style.width = (right - left) + "px";
+    tlRange.style.display = "block";
+    const dur = e - s;
+    $("#range-duration").textContent = `range: ${fmtTime(dur)}`;
+  } else {
+    tlRange.style.display = "none";
+    $("#range-duration").textContent = "";
+  }
+}
+video.addEventListener("timeupdate", updateTimeline);
+window.addEventListener("resize", updateTimeline);
+timeline.addEventListener("click", (e) => {
+  if (!video.duration) return;
+  const rect = timeline.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  video.currentTime = (x / rect.width) * video.duration;
+});
+
+$("#set-start-btn").addEventListener("click", () => {
+  $("#start-input").value = fmtTime(video.currentTime);
+  updateTimeline();
+});
+$("#set-end-btn").addEventListener("click", () => {
+  $("#end-input").value = fmtTime(video.currentTime);
+  updateTimeline();
+});
+$("#start-input").addEventListener("input", updateTimeline);
+$("#end-input").addEventListener("input", updateTimeline);
+
+/* ============== Playable preview proxy ============== */
+
+function setPreviewStatus(state, msg) {
+  const el = $("#preview-status");
+  const btn = $("#gen-preview-btn");
+  el.classList.remove("ready", "failed");
+  if (state === "idle") {
+    el.querySelector("span").innerHTML =
+      "Source plays as-is (raw MKV): audio &amp; smooth playback often need a transcoded proxy.";
+    btn.hidden = false; btn.disabled = false; btn.textContent = "Generate playable preview";
+  } else if (state === "generating") {
+    el.innerHTML = '<span class="spinner"></span><span>Generating proxy (audio -> AAC, video copied)… can take 20-60s on a long source.</span>';
+    btn.hidden = true;
+  } else if (state === "ready") {
+    el.classList.add("ready");
+    el.innerHTML = '<span><svg class="ic" aria-hidden="true"><use href="#ic-check"/></svg> Playable preview ready (audio works, scrub is smooth).</span><button id="regen-preview-btn" type="button">Regenerate</button>';
+    $("#regen-preview-btn").addEventListener("click", () => generatePreview());
+  } else if (state === "failed") {
+    el.classList.add("failed");
+    el.innerHTML = `<span><svg class="ic" aria-hidden="true"><use href="#ic-x"/></svg> Preview failed: ${(msg || "").slice(0, 200)}</span><button id="regen-preview-btn" type="button">Retry</button>`;
+    $("#regen-preview-btn").addEventListener("click", () => generatePreview());
+  }
+}
+
+async function generatePreview() {
+  if (!probed) return;
+  setPreviewStatus("generating");
+  if (previewPoll) { clearInterval(previewPoll); previewPoll = null; }
+  previewJobId = null;
+  try {
+    const r = await fetch("/api/generate-preview", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        path: $("#source-path").value.trim(),
+        audio_track: $("#audio-track-sel").value,
+      }),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || r.status);
+    previewJobId = data.job_id;
+    previewPoll = setInterval(pollPreview, 1000);
+  } catch (e) {
+    setPreviewStatus("failed", e.message);
+  }
+}
+
+async function pollPreview() {
+  if (!previewJobId) { clearInterval(previewPoll); previewPoll = null; return; }
+  try {
+    const r = await fetch(`/api/preview-proxy/${previewJobId}/status`);
+    const data = await r.json();
+    if (data.status === "done") {
+      clearInterval(previewPoll); previewPoll = null;
+      const v = $("#video");
+      const wasTime = v.currentTime;
+      v.src = `/api/preview-proxy/${previewJobId}`;
+      v.load();
+      v.addEventListener("loadedmetadata", () => {
+        try { v.currentTime = wasTime; } catch (_) {}
+      }, { once: true });
+      setPreviewStatus("ready");
+    } else if (data.status === "failed") {
+      clearInterval(previewPoll); previewPoll = null;
+      setPreviewStatus("failed", data.error || "");
+    }
+  } catch (e) {
+    clearInterval(previewPoll); previewPoll = null;
+    setPreviewStatus("failed", e.message);
+  }
+}
+
+$("#gen-preview-btn").addEventListener("click", generatePreview);
+$("#audio-track-sel").addEventListener("change", () => {
+  if (previewJobId) generatePreview();
+});
+
+/* ============== Native file picker (tkinter via server) ============== */
+
+async function browseNative() {
+  const btn = $("#browse-btn");
+  btn.disabled = true;
+  const orig = btn.textContent;
+  btn.textContent = "Picking…";
+  try {
+    const r = await fetch("/api/pick-file", { method: "POST" });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || r.status);
+    if (data.path) {
+      $("#source-path").value = data.path;
+      probe();
+    }
+  } catch (e) {
+    alert("File picker failed: " + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = orig;
+  }
+}
+$("#browse-btn").addEventListener("click", browseNative);
+
+async function runPipeline() {
+  if (!probed) { alert("Probe a source first"); return; }
+  const body = {
+    input: $("#source-path").value.trim(),
+    output: $("#output-input").value.trim(),
+    start: $("#start-input").value.trim(),
+    end: $("#end-input").value.trim(),
+    language: $("#lang-input").value.trim() || "fre",
+    num_speakers: $("#speakers-input").value.trim(),
+    audio_track: $("#audio-track-sel").value,
+    subtitle_track: $("#subtitle-track-sel").value,
+    auto_subs: $("#auto-subs").checked,
+  };
+  if (!body.input || !body.output) { alert("Source path and output dir are required"); return; }
+
+  $("#run-btn").disabled = true;
+  $("#log-panel").innerHTML = "";
+  $("#log-section").hidden = false;
+  $("#status-pill").textContent = "starting";
+  $("#status-pill").className = "status-pill status-running";
+  $("#job-done").hidden = true;
+
+  try {
+    const r = await fetch("/api/process", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(body),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || r.status);
+    currentJob = data.job_id;
+    try {
+      localStorage.setItem(ACTIVE_JOB_KEY, JSON.stringify({
+        job_id: currentJob, output: body.output || "", ts: Date.now(),
+      }));
+    } catch {}
+    if ("Notification" in window && Notification.permission === "default") {
+      try { Notification.requestPermission(); } catch {}
+    }
+    appendLog("$ " + data.cmd.join(" "), false);
+    $("#cancel-btn").hidden = false;
+    $("#status-pill").textContent = "running";
+    attachLogStream(data.job_id);
+  } catch (e) {
+    $("#status-pill").textContent = "error";
+    $("#status-pill").className = "status-pill status-failed";
+    appendLog("Failed to start: " + e.message, true);
+    $("#run-btn").disabled = false;
+  }
+}
+$("#run-btn").addEventListener("click", runPipeline);
+
+function appendLog(line, isErr=false) {
+  const div = document.createElement("div");
+  div.className = "log-line" + (isErr ? " err" : "");
+  div.textContent = line;
+  const panel = $("#log-panel");
+  panel.appendChild(div);
+  panel.scrollTop = panel.scrollHeight;
+}
+
+function attachLogStream(jobId) {
+  if (sse) { try { sse.close(); } catch (e) {} sse = null; }
+  sse = new EventSource(`/api/process/${jobId}/log`);
+  sse.onmessage = (e) => { appendLog(e.data); };
+  sse.addEventListener("end", (e) => {
+    try { sse.close(); } catch (_) {}
+    sse = null;
+    try { localStorage.removeItem(ACTIVE_JOB_KEY); } catch {}
+    const status = e.data || "done";
+    notify(
+      status === "done" ? "Preprocessing finished" : "Preprocessing failed",
+      status === "done" ? "Your scene is ready to edit." : "The pipeline failed — see the log."
+    );
+    $("#status-pill").textContent = status;
+    $("#status-pill").className = "status-pill " + (status === "done" ? "status-done" : "status-failed");
+    $("#run-btn").disabled = false;
+    $("#cancel-btn").hidden = true;
+    if (status === "done") {
+      $("#job-done").hidden = false;
+      $("#job-done-msg").innerHTML = '<svg class="ic" aria-hidden="true"><use href="#ic-check"/></svg> Pipeline finished successfully';
+      $("#job-output").textContent = $("#output-input").value.trim();
+    } else {
+      $("#job-done").hidden = false;
+      $("#job-done-msg").innerHTML = '<svg class="ic" aria-hidden="true"><use href="#ic-x"/></svg> Pipeline failed: check the log above';
+      $("#job-done-msg").style.color = "var(--danger)";
+    }
+  });
+  sse.onerror = () => {
+    // EventSource auto-reconnects on network blips, but NOT when the server closes the
+    // stream with an error (readyState CLOSED) — without this branch the UI stays locked
+    // on "running" forever with no way to recover.
+    if (sse && sse.readyState === EventSource.CLOSED) {
+      sse = null;
+      $("#status-pill").textContent = "disconnected";
+      $("#status-pill").className = "status-pill status-failed";
+      $("#run-btn").disabled = false;
+      $("#cancel-btn").hidden = true;
+      appendLog("Log stream disconnected — pipeline status unknown (reload to re-attach).", true);
+    }
+  };
+}
+
+$("#cancel-btn").addEventListener("click", async () => {
+  if (!currentJob) return;
+  await fetch(`/api/process/${currentJob}/cancel`, {method: "POST"});
+  appendLog("(cancellation requested)", true);
+});
+
+async function restoreActiveJob() {
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(ACTIVE_JOB_KEY) || "null"); } catch { saved = null; }
+  if (!saved || !saved.job_id) return;
+  let data;
+  try {
+    const r = await fetch(`/api/process/${saved.job_id}`);
+    if (!r.ok) { try { localStorage.removeItem(ACTIVE_JOB_KEY); } catch {} return; }
+    data = await r.json();
+  } catch {
+    return;
+  }
+  if (data.status === "running") {
+    currentJob = saved.job_id;
+    if (saved.output) $("#output-input").value = saved.output;
+    $("#log-section").hidden = false;
+    $("#status-pill").textContent = "running";
+    $("#status-pill").className = "status-pill status-running";
+    $("#run-btn").disabled = true;
+    $("#cancel-btn").hidden = false;
+    appendLog("Reattached to a job already running in the background…", false);
+    attachLogStream(saved.job_id);
+  } else if (data.status === "done") {
+    try { localStorage.removeItem(ACTIVE_JOB_KEY); } catch {}
+    const out = data.output_dir || saved.output || "";
+    if (out) $("#output-input").value = out;
+    $("#log-section").hidden = false;
+    $("#status-pill").textContent = "done";
+    $("#status-pill").className = "status-pill status-done";
+    appendLog("Job finished while you were away.", false);
+    $("#job-done").hidden = false;
+    $("#job-done-msg").innerHTML = '<svg class="ic" aria-hidden="true"><use href="#ic-check"/></svg> Pipeline finished successfully';
+    $("#job-output").textContent = out;
+  } else if (data.status === "failed") {
+    try { localStorage.removeItem(ACTIVE_JOB_KEY); } catch {}
+    $("#log-section").hidden = false;
+    $("#status-pill").textContent = "failed";
+    $("#status-pill").className = "status-pill status-failed";
+    $("#job-done").hidden = false;
+    $("#job-done-msg").innerHTML = '<svg class="ic" aria-hidden="true"><use href="#ic-x"/></svg> The previous job failed — see log.';
+    $("#job-done-msg").style.color = "var(--danger)";
+  }
+}
+restoreActiveJob();
+</script>
+</body>
+</html>
